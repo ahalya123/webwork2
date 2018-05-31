@@ -152,7 +152,9 @@ sub updateUser
 	# Do the simple updates first since they can be batched
 	my $update = 0;
 	# Update student id
-	if ($newInfo->{'studentid'} ne $oldInfo->student_id())
+	#PYL! update student id only if newinfo is not blank; check defined newInfo->studentId else uninitialized variable warning	
+	#if ($newInfo->{'studentid'} ne $oldInfo->student_id())
+	if (defined $newInfo->{'studentid'} && $newInfo->{'studentid'} ne $oldInfo->student_id() && $newInfo->{'studentid'} ne "")
 	{
 		$oldInfo->student_id($newInfo->{'studentid'});
 		$update = 1;
