@@ -181,8 +181,6 @@ sub createCourse
 	my $self = shift;
 	my $r = $self->{r};
 	my $ce = $r->ce;
-#uoft
-#my $db = new WeBWorK::DB($ce->{dbLayout});
 
 	if (!$self->_isInstructor())
 	{
@@ -192,9 +190,15 @@ sub createCourse
 	my %course = ();
 	my @users = ();
 
-	#uoft add memberships TODO
-	my $ret = $self->_getAndParseRoster(\%course, \@users);
-	#my $ret = $self->_getAndParseRosterMemberships(\%course, \@users);
+	#uoft
+	my $ret;
+	if (defined($r->param("custom_context_memberships_url"))) {
+		$ret = $self->_getAndParseRosterMemberships(\%course, \@users);
+	}
+	else {
+		$ret = $self->_getAndParseRoster(\%course, \@users);
+	}
+
 	if ($ret)
 	{
 		return error("Get roster failed: $ret", "#e009");
@@ -205,25 +209,7 @@ sub createCourse
 	{
 		return error("Create course failed: $ret", "#e010");
 	}
-	#uoft instead of here add code to sub updateLTISettings
-		#my $lis_outcome_service_url = $db->getSettingValue('lis_outcome_service_url');
-		#if(!defined($lis_outcome_service_url) || $lis_outcome_service_url ne $r->param		('lis_outcome_service_url'))
-		#{
-  			#$db->setSettingValue('lis_outcome_service_url',$r->param('lis_outcome_service_url'));
-		#}
-
-		#my $consumer_key = $db->getSettingValue('consumer_key');
-		#if(!defined($consumer_key) || $consumer_key ne $r->param('oauth_consumer_key'))
-		#{
-  			#$db->setSettingValue('consumer_key',$r->param('oauth_consumer_key'));
-		#}
-
-		#my $signature_method = $db->getSettingValue('oauth_signature_method');
-		#if(!defined($signature_method) || $signature_method ne $r->param('oauth_signature_method'))
-		#{
-  			#$db->setSettingValue('signature_method',$r->param('oauth_signature_method'));
-		#}
-
+	
 	# store LTI credentials for auto-update
 	$self->updateLTISettings();
 
@@ -323,7 +309,7 @@ sub updateLTISettings()
 
 	#uoft
 	my $lis_outcome_service_url = $db->getSettingValue('lis_outcome_service_url');
-	if(!defined($lis_outcome_service_url) || $lis_outcome_service_url ne $r->param		('lis_outcome_service_url'))
+	if(!defined($lis_outcome_service_url) || $lis_outcome_service_url ne $r->param('lis_outcome_service_url'))
 	{
 		$db->setSettingValue('lis_outcome_service_url',$r->param('lis_outcome_service_url'));
 	}
@@ -353,13 +339,18 @@ sub _updateCourseEnrolment()
 	}
 	
 	#uoft
-	#my $ret = $self->_getAndParseRoster($course, $users);
-	my $ret = $self->_getAndParseRosterMemberships($course, $users);
+	my $ret;
+	if (defined($r->param("custom_context_memberships_url"))) {
+		$ret = $self->_getAndParseRosterMemberships($course, $users);
+	}
+	else {
+		$ret = $self->_getAndParseRoster($course, $users);
+	}
 	if ($ret)
 	{
 		return error("Get roster failed: $ret", "#e009");
 	}
-
+	#print "user count: " . scalar @$users;
 	if (@$users)
 	{
 		$ret = $self->SUPER::updateCourse($course, $users);
@@ -369,7 +360,6 @@ sub _updateCourseEnrolment()
 		}
 	}
 
-	
 	return 0;
 }
 
@@ -597,8 +587,49 @@ sub _getAndParseRoster
 	return 0;
 }
 
-#uoft
+#uoft - get canvas memberships and parse response json
 sub _getAndParseRosterMemberships
+{
+	my ($self, $course_ref, $users_ref) = @_;
+	my $r = $self->{r};
+
+	my $parser = WebworkBridge::Bridges::LTIParser->new($r, $course_ref, $users_ref);
+
+	#uoft
+	#$self->{memberships_url} = $r->param("custom_context_memberships_url");
+	$self->{memberships_url} = $r->param("custom_context_memberships_url") . "?per_page=100";
+
+	if (defined($self->{memberships_url}))
+	{
+		do {
+			my $json;
+			my $ret = $self->_getRosterMemberships(\$json);
+			if ($ret) {
+				return error("Unable to connect to roster server: $ret", "#e003");
+			}
+
+			$ret = $parser->parseJson($json);
+			if ($ret){
+				return error("JSON response received, but access denied.", "#e005");
+			}
+			#print "nextPage: " . $r->{nextPage};
+			$self->{memberships_url} = $r->{nextPage};
+			#print Dumper($parser);
+			#print Dumper($users_ref);
+			#print "memberships count: " . scalar(@$users_ref);	  
+		}
+		while(defined($r->{nextPage}));
+	}
+
+	$course_ref->{name} = $parser->getCourseName();
+	$course_ref->{title} = $r->param("context_title");
+	$course_ref->{id} = $r->param("resource_link_id");
+
+	return 0;
+}
+
+#uoft org - can delete later - implements canvas memberships without paging
+sub _getAndParseRosterMemberships_org
 {
 	my ($self, $course_ref, $users_ref) = @_;
 	my $r = $self->{r};
@@ -686,7 +717,7 @@ sub _getRoster
 	}
 }
 
-#uoft
+#uoft - canvas memberships
 sub _getRosterMemberships
 {
 	my ($self, $json) = @_;
@@ -698,11 +729,17 @@ sub _getRosterMemberships
 	{
 		return error("Unknown secret key '$key', is there a typo?", "#e006");
 	}
+
+	# extra prod logging when debug is disabled
+	my $extralog = WebworkBridge::ExtraLog->new($r);
+	$extralog->logXML("--- " . $r->param('context_title') . " ---");
+	$extralog->logXML("User role: " . $r->param('roles'));
+
 	my $oauth = Net::OAuth->request("request token")->new(
 		consumer_key => $key,
 		consumer_secret => $r->ce->{bridge}{lti_secrets}{$key},
 		protocol_version => Net::OAuth::PROTOCOL_VERSION_1_0A,
-		request_url => $r->param('custom_context_memberships_url'),
+		request_url => $self->{memberships_url},
 		request_method => 'GET',
 		signature_method => 'HMAC-SHA1',
 		timestamp => time(),
@@ -718,42 +755,22 @@ sub _getRosterMemberships
 	  'Authorization' => $oauth->to_authorization_header
 	]
 	);
-#print "memberships url: " . $request->request_url;
-#print "key: " . $request->consumer_key;
-#print "secret: " . $request->consumer_secret;
-
-	# remove the params in URL from post body so that they will not be sent twice
-	#my @params = split('&', uri_unescape($request->to_post_body));
-	#my $url = URI->new($request->request_url);
-	#foreach my $k ($url->query_param) {
-	#	@params = grep {$_ ne $k.'='.$url->query_param($k)} @params;
-	#}
-
-	# have to generate the post parameters ourselves because of the way blti building block check the hash (memberships_id)
-	#my %p = map { (split('=', $_, 2))[0] => (split('=', $_, 2))[1] } @params;
-	# extra prod logging when debug is disabled
-	my $extralog = WebworkBridge::ExtraLog->new($r);
-	$extralog->logXML("--- " . $r->param('context_title') . " ---");
-	$extralog->logXML("User role: " . $r->param('roles'));
 	
 	# attempt actual request
-	#my $res = $ua->request((POST $request->request_url, \%p));
 	my $res = $ua->request($request);
-#print "status line: " . $res->status_line;
-#print "decoded content: " . $res->decoded_content;
 
 	if ($res->is_success)
 	{
 		$$json = $res->content;
-#print "LTI Get Roster Success!\n";
-#print "decoded content: " . $res->decoded_content;
+		#print "LTI Get Roster Success!\n";
+		#print "decoded content: " . $res->decoded_content;
 		debug("LTI Get Roster Success! \n" . $$json . "\n");
 		$extralog->logXML("Successfully retrieved roster: \n" . $$json);
 		return 0;
 	}
 	else
 	{
-#print "Unable to perform getRosterMemberships OAuth request";
+		print "Unable to perform getRosterMemberships OAuth request";
 		$extralog->logXML("Roster retrival failed, unable to connect.");
 		return error("Unable to perform OAuth request.","#e007");
 	}

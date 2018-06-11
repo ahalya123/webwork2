@@ -86,7 +86,7 @@ sub parse
 	return 0;
 }
 
-#uoft using instead of parse for canvas
+#uoft parse canvas memberships where response is in json
 sub parseJson
 {
 	my ($self, $param) = @_;
@@ -94,7 +94,9 @@ sub parseJson
 	my $course = $self->{course};
 	my $users = $self->{users};
 	%{$course} = ();
-	@{$users} = ();
+	
+	#uoft uncomment; don't initialize array; elements need to be cumulative to implement iterative service calls for paging 
+	#@{$users} = ();
 
 	my $extralog = WebworkBridge::ExtraLog->new($self->{r});
 	my $data;
@@ -106,33 +108,15 @@ sub parseJson
 
 	if ($@)
 	{
-	  $extralog->logXML("XML parsing failed.");
-	  return error("XML parsing failed\n");
+	  $extralog->logXML("Json parsing failed.");
+	  return error("Json parsing failed\n");
 	}
 
-	#if ($data->{'statusinfo'}{'codemajor'} ne 'Success')
-	#{ # check status code
-	#	$extralog->logXML("Retrived roster has failure status code.");
-	#	return error("Failed to retrieve roster.", "#e001");
-	#}
+	#uoft extract membership from json object - this has list of members
+	my $nextPage = $data->{nextPage};
+	$self->{r}->{nextPage} = $nextPage;
 
-        #extract membership from json object - this has list of members
         my $members = $data->{pageOf}->{membershipSubject}->{membership}; 
-	# not using below as not xml
-	## xml parser creates different data structs if more than 1 member
-	#if (ref($data->{'memberships'}{'member'}) eq 'ARRAY')
-	#{
-	#	# Note that the explicit cast is necessary, otherwise it throws
-	#	# a bad index error in the foreach loop. The explicit cast is not
-	#	# necessary if we only have a single member in the course, hence
-	#	# we only cast if there are more than one members in the course.
-	#	@members = @{$data->{'memberships'}{'member'}};
-	#}
-
-	#for my $record (@$membership) {
-  	  #my $member = $record->{member};
-  	  #print $member->{name};
-	#}
 	
 	for my $record (@$members) {
   	  my $member = $record->{member}; #note $member is a hash
@@ -164,12 +148,12 @@ sub parseJson
 	  push(@{$users}, \%user);
 	  #push(@{$users}, $user);
 	}
-
 	return 0;
 }
 
 ##### Helper Functions #####
 
+#uoft changes for canvas memberships
 sub parseUser
 {
 	my ($self, $tmp) = @_;
@@ -208,9 +192,11 @@ sub parseUser
 	# any more perl ops
 	utf8::encode($user{'firstname'});
 	utf8::encode($user{'lastname'});
+
 	# fetch student number
 	#uoft commenting out as memberships does not return student id (lis_person_sourcedid) so it does not 		overwrite value that we get from user launch	
 	#$user{'studentid'} = '';
+
 	foreach my $field (@{$ce->{bridge}{user_student_number_fields}})
 	{
 		# create copy of user_identifier_field element
@@ -225,66 +211,15 @@ sub parseUser
 			last;
 		}
 	}
+
 	#uoft commenting out so it does not overwrite result sourcedid that we get from student launch	
 	#$user{'lis_source_did'} = $param{'lis_result_sourcedid'};
+
+	#uoft set email value
 	#$user{'email'} = $param{'person_contact_email_primary'};
-	#uoft
 	$user{'email'} = $param{'email'};
 	return %user;
 }
-
-
-#org
-#sub parseUser
-#{
-#	my ($self, $tmp) = @_;
-#	my $ce = $self->{r}->ce;
-#	my %param = %{$tmp};
-#	my %user;
-#	# fetch user_id
-#	foreach my $field (@{$ce->{bridge}{user_identifier_fields}})
-#	{
-#		# create copy of user_identifier_field element
-#		my $field_name = $field;
-#		# fix user_identifier_fields for membership extension
-#		if ($field_name eq 'lis_person_sourcedid') {
-#			$field_name = 'person_sourcedid';
-#		} elsif ($field_name eq 'lis_person_contact_email_primary') {
-#			$field_name = 'person_contact_email_primary';
-#		}
-#
-#		if (defined($param{$field_name}) && $param{$field_name} ne '') {
-#			$user{'loginid'} = $param{$field_name};
-#			last;
-#		}
-#	}
-#	$user{'firstname'} = $param{'person_name_given'};
-#	$user{'lastname'} = $param{'person_name_family'};
-#	# convert from internal perl UTF8 to binary UTF8, note that this means
-#	# I'm expecting these to go straight into the database, not be used in
-#	# any more perl ops
-#	utf8::encode($user{'firstname'});
-#	utf8::encode($user{'lastname'});
-#	# fetch student number
-#	$user{'studentid'} = '';
-#	foreach my $field (@{$ce->{bridge}{user_student_number_fields}})
-#	{
-#		# create copy of user_identifier_field element
-#		my $field_name = $field;
-#		# fix user_identifier_fields for membership extension
-#		if ($field_name eq 'lis_person_sourcedid') {
-#			$field_name = 'person_sourcedid';
-#		}
-#
-#		if (defined($param{$field_name}) && $param{$field_name} ne '') {
-#			$user{'studentid'} = $param{$field_name};
-#			last;
-#		}
-#	}
-#	$user{'lis_source_did'} = $param{'lis_result_sourcedid'};
-#	$user{'email'} = $param{'person_contact_email_primary'};
-#	return %user;
-#}
 
 sub parseLaunchUser
 {
