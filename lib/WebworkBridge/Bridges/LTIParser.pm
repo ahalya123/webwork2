@@ -9,7 +9,7 @@ use WebworkBridge::Importer::Error;
 use WeBWorK::Debug;
 use Data::Dumper;
 use JSON;
-use experimental 'smartmatch';  #uoft added else warnings as this is older version of perl
+#use experimental 'smartmatch';  #uoft added else warnings as this is older version of perl
 
 ##### Exported Functions #####
 sub new
