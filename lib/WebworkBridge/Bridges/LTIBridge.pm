@@ -596,8 +596,8 @@ sub _getAndParseRosterMemberships
 	my $parser = WebworkBridge::Bridges::LTIParser->new($r, $course_ref, $users_ref);
 
 	#uoft
-	$self->{memberships_url} = $r->param("custom_context_memberships_url");
-	#$self->{memberships_url} = $r->param("custom_context_memberships_url") . "?per_page=100";
+	#$self->{memberships_url} = $r->param("custom_context_memberships_url");
+	$self->{memberships_url} = $r->param("custom_context_memberships_url") . "?per_page=100";
 
 	if (defined($self->{memberships_url}))
 	{
